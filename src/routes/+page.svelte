@@ -27,9 +27,11 @@
           </div>
         </div>
 
-        <div class="flex flex-col gap-6">
-          <JiraTickets />
+        <div class="flex h-full min-h-0 flex-col gap-6">
           <DockerContainers />
+          <div class="flex-1 min-h-0">
+            <JiraTickets />
+          </div>
         </div>
       </div>
     </div>

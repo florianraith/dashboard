@@ -91,8 +91,12 @@
   });
 </script>
 
-<Widget title="Jira Tickets">
-  <div class="space-y-3 max-h-[420px]">
+<Widget
+  title="Jira Tickets"
+  className="h-full flex flex-col"
+  contentClassName="flex-1 min-h-0"
+>
+  <div class="h-full min-h-0">
     {#if isLoading}
       <p class="text-gray-500 text-sm italic">Loading Jira tickets...</p>
     {:else if error}
@@ -106,7 +110,7 @@
     {:else if tickets.length === 0}
       <p class="text-gray-500 text-sm italic">No tickets found</p>
     {:else}
-      <div class="space-y-3 max-h-[320px] overflow-y-auto pr-1">
+      <div class="h-full min-h-0 space-y-3 overflow-y-auto pr-1">
         {#each tickets as ticket}
           <button
             class="w-full text-left border-l-4 border-primary-500 px-3 py-2 bg-gray-50 rounded-r hover:shadow-md transition-shadow cursor-pointer"
