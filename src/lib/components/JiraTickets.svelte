@@ -16,26 +16,36 @@
   let error = $state<string | null>(null);
   let interval: number;
 
-  function getStatusColor(status: string): string {
-    const statusLower = status.toLowerCase();
-    if (statusLower.includes("done") || statusLower.includes("closed")) {
-      return "border-green-500 bg-green-50";
-    } else if (statusLower.includes("blocked")) {
-      return "border-red-500 bg-red-50";
-    } else {
-      return "border-primary-500 bg-primary-50";
-    }
-  }
-
   function getStatusBadgeColor(status: string): string {
     const statusLower = status.toLowerCase();
     if (statusLower.includes("done") || statusLower.includes("closed")) {
       return "bg-green-100 text-green-700";
-    } else if (statusLower.includes("blocked")) {
-      return "bg-red-100 text-red-700";
-    } else {
-      return "bg-primary-100 text-primary-700";
     }
+    if (statusLower.includes("progress") || statusLower.includes("development")) {
+      return "bg-blue-100 text-blue-700";
+    }
+    if (statusLower.includes("review") || statusLower.includes("test") || statusLower.includes("qa")) {
+      return "bg-amber-100 text-amber-700";
+    }
+    if (
+      statusLower.includes("todo") ||
+      statusLower.includes("backlog") ||
+      statusLower.includes("open") ||
+      statusLower.includes("zu erledigen")
+    ) {
+      return "bg-gray-100 text-gray-700";
+    }
+    if (statusLower.includes("blocked")) {
+      return "bg-red-100 text-red-700";
+    }
+    return "bg-primary-100 text-primary-700";
+  }
+
+  function getAssigneeClass(assignee: string): string {
+    if (assignee.trim().toLowerCase() === "florian raith") {
+      return "text-primary-700 font-semibold";
+    }
+    return "text-gray-600";
   }
 
   async function updateTickets() {
@@ -72,7 +82,7 @@
 </script>
 
 <Widget title="Jira Tickets">
-  <div class="space-y-3">
+  <div class="space-y-3 max-h-[420px]">
     {#if error}
       <p class="text-gray-500 text-sm italic">
         {error.includes("environment variable") || error.includes("JIRA_")
@@ -84,32 +94,33 @@
     {:else if tickets.length === 0}
       <p class="text-gray-500 text-sm italic">No tickets found</p>
     {:else}
-      <div class="space-y-3">
+      <div class="space-y-3 max-h-[320px] overflow-y-auto pr-1">
         {#each tickets as ticket}
           <button
-            class="w-full text-left border-l-4 {getStatusColor(ticket.status)} px-3 py-2 rounded-r hover:shadow-md hover:ring-1 hover:ring-primary-300 transition-all cursor-pointer"
+            class="w-full text-left border-l-4 border-primary-500 px-3 py-2 bg-gray-50 rounded-r hover:shadow-md transition-shadow cursor-pointer"
             onclick={() => openTicket(ticket.url)}
             title="Click to open in browser"
           >
-            <!-- First row: Key - Status Badge -->
-            <div class="flex items-center justify-between mb-1.5">
-              <h4 class="font-semibold text-primary-800 text-sm" title={ticket.key}>
+            <!-- First row: Title -->
+            <p class="text-sm text-gray-800 font-medium leading-snug whitespace-normal break-words" title={ticket.summary}>
+              {ticket.summary}
+            </p>
+
+            <!-- Second row: Key - Status -->
+            <div class="flex items-center justify-between mt-2 gap-2">
+              <span class="text-xs text-gray-500 whitespace-nowrap">
                 {ticket.key}
-              </h4>
+              </span>
               <span class="text-xs px-2 py-0.5 rounded {getStatusBadgeColor(ticket.status)} whitespace-nowrap">
                 {ticket.status}
               </span>
             </div>
 
-            <!-- Second row: Summary -->
-            <p class="text-sm text-gray-800 mb-1.5 line-clamp-2" title={ticket.summary}>
-              {ticket.summary}
-            </p>
-
-            <!-- Third row: Assignee -->
-            <div class="flex items-center gap-1.5">
-              <span class="text-xs text-primary-700">👤</span>
-              <span class="text-xs text-gray-700">{ticket.assignee}</span>
+            <!-- Third row: Assignee (plain text) -->
+            <div class="mt-1">
+              <span class="text-xs {getAssigneeClass(ticket.assignee)}" title={ticket.assignee}>
+                {ticket.assignee}
+              </span>
             </div>
           </button>
         {/each}
@@ -117,12 +128,3 @@
     {/if}
   </div>
 </Widget>
-
-<style>
-  .line-clamp-2 {
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
-  }
-</style>
