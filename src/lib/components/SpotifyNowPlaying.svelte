@@ -55,7 +55,7 @@
   </Widget>
 {:else}
   <!-- Enhanced widget with background image -->
-  <div class="relative rounded-lg shadow-md overflow-hidden h-[180px] max-h-[180px]">
+  <div class="relative rounded-lg overflow-hidden h-[180px] max-h-[180px]">
     <!-- Background image with blur -->
     <div
       class="absolute inset-0 bg-cover bg-center"

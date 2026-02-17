@@ -3,6 +3,8 @@ use std::env;
 use std::process::Command;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
+use chrono::{DateTime, Utc};
 use sysinfo::System;
 use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, Position, Size, State};
 
@@ -68,6 +70,28 @@ struct JiraTicket {
     url: String,
 }
 
+#[derive(Clone, Serialize)]
+struct ServiceHealth {
+    name: String,
+    url: String,
+    is_up: bool,
+    status_code: Option<u16>,
+    latency_ms: Option<u128>,
+    checked_at_ms: u128,
+    error: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+struct SentryIssue {
+    title: String,
+    last_seen: String,
+    first_seen: String,
+    age: String,
+    events: u64,
+    users: u64,
+    url: String,
+}
+
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -106,9 +130,9 @@ fn collect_ram_usage() -> RamUsage {
         })
         .collect();
 
-    // Sort by memory usage (descending) and take top 5
+    // Sort by memory usage (descending) and take top 3
     processes.sort_by(|a, b| b.memory.cmp(&a.memory));
-    let top_processes = processes.into_iter().take(5).collect();
+    let top_processes = processes.into_iter().take(3).collect();
 
     RamUsage {
         used,
@@ -346,9 +370,9 @@ fn collect_cpu_usage() -> CpuUsage {
         })
         .collect();
 
-    // Sort by CPU usage (descending) and take top 5
+    // Sort by CPU usage (descending) and take top 3
     processes.sort_by(|a, b| b.cpu_usage.partial_cmp(&a.cpu_usage).unwrap());
-    let top_processes = processes.into_iter().take(5).collect();
+    let top_processes = processes.into_iter().take(3).collect();
 
     CpuUsage {
         overall_usage,
@@ -462,6 +486,157 @@ async fn collect_jira_tickets() -> Result<Vec<JiraTicket>, String> {
     Ok(tickets)
 }
 
+async fn collect_service_health() -> Vec<ServiceHealth> {
+    let services = [
+        ("Trisolaris", "https://app.florianraith.com/up"),
+        ("Spliit", "https://spliit.florianraith.com/api/health"),
+        ("Partnerportal (Dev)", "https://dev-portal.zewotherm.com/up"),
+        ("Partnerportal (Prod)", "https://portal.zewotherm.com/up"),
+    ];
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
+    let mut results = Vec::with_capacity(services.len());
+
+    for (name, url) in services {
+        let checked_at_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let started = std::time::Instant::now();
+        let response = client.get(url).send().await;
+
+        match response {
+            Ok(resp) => {
+                let status = resp.status();
+                results.push(ServiceHealth {
+                    name: name.to_string(),
+                    url: url.to_string(),
+                    is_up: status.is_success(),
+                    status_code: Some(status.as_u16()),
+                    latency_ms: Some(started.elapsed().as_millis()),
+                    checked_at_ms,
+                    error: None,
+                });
+            }
+            Err(err) => {
+                results.push(ServiceHealth {
+                    name: name.to_string(),
+                    url: url.to_string(),
+                    is_up: false,
+                    status_code: None,
+                    latency_ms: Some(started.elapsed().as_millis()),
+                    checked_at_ms,
+                    error: Some(err.to_string()),
+                });
+            }
+        }
+    }
+
+    results
+}
+
+fn format_age_from_first_seen(first_seen: &str) -> String {
+    let parsed = DateTime::parse_from_rfc3339(first_seen);
+    if let Ok(first_seen_dt) = parsed {
+        let now = Utc::now();
+        let first_seen_utc = first_seen_dt.with_timezone(&Utc);
+        let delta = now.signed_duration_since(first_seen_utc);
+
+        if delta.num_days() > 0 {
+            return format!("{}d", delta.num_days());
+        }
+        if delta.num_hours() > 0 {
+            return format!("{}h", delta.num_hours());
+        }
+        if delta.num_minutes() > 0 {
+            return format!("{}m", delta.num_minutes());
+        }
+        return format!("{}s", delta.num_seconds().max(0));
+    }
+
+    "n/a".to_string()
+}
+
+async fn collect_sentry_issues() -> Result<Vec<SentryIssue>, String> {
+    let token = env::var("SENTRY_AUTH_TOKEN")
+        .map_err(|_| "SENTRY_AUTH_TOKEN environment variable not set".to_string())?;
+
+    let url = "https://sentry.io/api/0/organizations/zw-systems-gmbh/issues/?project=4509966802485248&statsPeriod=90d&sort=date&limit=15&query=is:unresolved";
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(12))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
+    let response = client
+        .get(url)
+        .header("Authorization", format!("Bearer {}", token))
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch Sentry issues: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!("Sentry API error ({}): {}", status, body));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Sentry response: {}", e))?;
+
+    let issues = json
+        .as_array()
+        .ok_or("Invalid Sentry response format: expected array")?;
+
+    let mapped = issues
+        .iter()
+        .map(|issue| {
+            let title = issue["title"]
+                .as_str()
+                .or_else(|| issue["metadata"]["title"].as_str())
+                .unwrap_or("Unknown issue")
+                .to_string();
+
+            let last_seen = issue["lastSeen"]
+                .as_str()
+                .unwrap_or("n/a")
+                .to_string();
+            let first_seen = issue["firstSeen"]
+                .as_str()
+                .unwrap_or("n/a")
+                .to_string();
+
+            let events = issue["count"]
+                .as_str()
+                .and_then(|v| v.parse::<u64>().ok())
+                .or_else(|| issue["count"].as_u64())
+                .unwrap_or(0);
+
+            let users = issue["userCount"].as_u64().unwrap_or(0);
+            let url = issue["permalink"].as_str().unwrap_or("").to_string();
+
+            SentryIssue {
+                title,
+                age: format_age_from_first_seen(&first_seen),
+                last_seen,
+                first_seen,
+                events,
+                users,
+                url,
+            }
+        })
+        .collect();
+
+    Ok(mapped)
+}
+
 #[tauri::command]
 fn get_ram_usage(state: State<'_, AppState>) -> RamUsage {
     state
@@ -509,6 +684,26 @@ fn get_jira_tickets(state: State<'_, AppState>) -> Result<Vec<JiraTicket>, Strin
         .read()
         .expect("failed to lock state")
         .jira
+        .clone()
+}
+
+#[tauri::command]
+fn get_service_health(state: State<'_, AppState>) -> Vec<ServiceHealth> {
+    state
+        .snapshot
+        .read()
+        .expect("failed to lock state")
+        .health
+        .clone()
+}
+
+#[tauri::command]
+fn get_sentry_issues(state: State<'_, AppState>) -> Result<Vec<SentryIssue>, String> {
+    state
+        .snapshot
+        .read()
+        .expect("failed to lock state")
+        .sentry
         .clone()
 }
 
@@ -576,6 +771,30 @@ fn start_background_pollers(app: &AppHandle) {
             tokio::time::sleep(Duration::from_millis(30000)).await;
         }
     });
+
+    let snapshot_for_health = app.state::<AppState>().snapshot.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(2100)).await;
+        loop {
+            let health = collect_service_health().await;
+            if let Ok(mut state) = snapshot_for_health.write() {
+                state.health = health;
+            }
+            tokio::time::sleep(Duration::from_millis(20000)).await;
+        }
+    });
+
+    let snapshot_for_sentry = app.state::<AppState>().snapshot.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(2500)).await;
+        loop {
+            let sentry = collect_sentry_issues().await;
+            if let Ok(mut state) = snapshot_for_sentry.write() {
+                state.sentry = sentry;
+            }
+            tokio::time::sleep(Duration::from_millis(30000)).await;
+        }
+    });
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -613,7 +832,9 @@ pub fn run() {
             get_docker_containers,
             get_spotify_track,
             get_cpu_usage,
-            get_jira_tickets
+            get_jira_tickets,
+            get_service_health,
+            get_sentry_issues
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -625,6 +846,8 @@ struct AppSnapshot {
     docker: Result<Vec<DockerContainer>, String>,
     spotify: Result<SpotifyTrack, String>,
     jira: Result<Vec<JiraTicket>, String>,
+    health: Vec<ServiceHealth>,
+    sentry: Result<Vec<SentryIssue>, String>,
 }
 
 struct AppState {
@@ -649,6 +872,8 @@ impl AppState {
                 docker: Ok(Vec::new()),
                 spotify: Err("Loading Spotify data...".to_string()),
                 jira: Err("Loading Jira tickets...".to_string()),
+                health: Vec::new(),
+                sentry: Err("Loading Sentry issues...".to_string()),
             })),
         }
     }
