@@ -13,3 +13,7 @@
   --color-primary-900: var(--color-teal-900);
   --color-primary-950: var(--color-teal-950);
 }
+
+body {
+  background-color: transparent;
+}
