@@ -89,6 +89,7 @@ struct SentryIssue {
     age: String,
     events: u64,
     users: u64,
+    is_bot: bool,
     url: String,
 }
 
@@ -620,6 +621,18 @@ async fn collect_sentry_issues() -> Result<Vec<SentryIssue>, String> {
                 .unwrap_or(0);
 
             let users = issue["userCount"].as_u64().unwrap_or(0);
+            let is_bot = issue["tags"]
+                .as_array()
+                .map(|tags| {
+                    tags.iter().any(|tag| {
+                        tag["key"].as_str() == Some("browser")
+                            && tag["value"]
+                                .as_str()
+                                .map(|value| value.contains("Python"))
+                                .unwrap_or(false)
+                    })
+                })
+                .unwrap_or(false);
             let url = issue["permalink"].as_str().unwrap_or("").to_string();
 
             SentryIssue {
@@ -629,6 +642,7 @@ async fn collect_sentry_issues() -> Result<Vec<SentryIssue>, String> {
                 first_seen,
                 events,
                 users,
+                is_bot,
                 url,
             }
         })
