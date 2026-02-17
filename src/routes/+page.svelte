@@ -4,6 +4,7 @@
   import CpuUsage from "$lib/components/CpuUsage.svelte";
   import DockerContainers from "$lib/components/DockerContainers.svelte";
   import SpotifyNowPlaying from "$lib/components/SpotifyNowPlaying.svelte";
+  import JiraTickets from "$lib/components/JiraTickets.svelte";
 </script>
 
 <div class="min-h-screen bg-transparent">
@@ -18,6 +19,8 @@
       <DockerContainers />
 
       <SpotifyNowPlaying />
+
+      <JiraTickets />
     </div>
   </main>
 </div>

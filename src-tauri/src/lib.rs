@@ -1,6 +1,8 @@
 use serde::Serialize;
+use std::env;
 use std::process::Command;
 use sysinfo::System;
+use tauri::{Manager, PhysicalPosition, PhysicalSize, Position, Size};
 
 #[derive(Serialize)]
 struct ProcessInfo {
@@ -53,6 +55,15 @@ struct CpuUsage {
     overall_usage: f32,
     cores: Vec<CpuCore>,
     top_processes: Vec<CpuProcessInfo>,
+}
+
+#[derive(Serialize)]
+struct JiraTicket {
+    key: String,
+    summary: String,
+    status: String,
+    assignee: String,
+    url: String,
 }
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -348,16 +359,143 @@ fn get_cpu_usage() -> CpuUsage {
     }
 }
 
+#[tauri::command]
+async fn get_jira_tickets() -> Result<Vec<JiraTicket>, String> {
+    let api_token = env::var("JIRA_API_TOKEN")
+        .map_err(|_| "JIRA_API_TOKEN environment variable not set".to_string())?;
+    let email = env::var("JIRA_EMAIL")
+        .map_err(|_| "JIRA_EMAIL environment variable not set".to_string())?;
+    let base_url = env::var("JIRA_BASE_URL")
+        .unwrap_or_else(|_| "https://zw-systems.atlassian.net".to_string());
+
+    let raw_jql = env::var("JIRA_JQL").unwrap_or_default();
+    let jql = if raw_jql.trim().is_empty() {
+        "updated >= -3650d ORDER BY updated DESC".to_string()
+    } else {
+        raw_jql
+    };
+
+    let client = reqwest::Client::new();
+
+    let auth_check = client
+        .get(format!("{}/rest/api/3/myself", base_url))
+        .basic_auth(&email, Some(&api_token))
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to validate Jira credentials: {}", e))?;
+
+    if !auth_check.status().is_success() {
+        let status = auth_check.status();
+        let body = auth_check.text().await.unwrap_or_default();
+        return Err(format!(
+            "Jira authentication failed ({}). Check JIRA_EMAIL and JIRA_API_TOKEN. {}",
+            status, body
+        ));
+    }
+
+    let url = format!(
+        "{}/rest/api/3/search/jql?jql={}&maxResults=5&fields=summary,status,assignee",
+        base_url,
+        urlencoding::encode(&jql)
+    );
+
+    let response = client
+        .get(&url)
+        .basic_auth(&email, Some(&api_token))
+        .header("Accept", "application/json")
+        .send()
+        .await
+        .map_err(|e| format!("Failed to fetch Jira tickets: {}", e))?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let error_text = response.text().await.unwrap_or_default();
+        return Err(format!("Jira API error ({}): {}", status, error_text));
+    }
+
+    let json: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Jira response: {}", e))?;
+
+    let issues = json["issues"]
+        .as_array()
+        .ok_or("Invalid Jira response format: missing 'issues' array")?;
+
+    if issues.is_empty() {
+        return Err(format!(
+            "Jira returned 0 tickets for JQL: `{}`. Verify query and Jira permissions.",
+            jql
+        ));
+    }
+
+    let tickets: Vec<JiraTicket> = issues
+        .iter()
+        .map(|issue| {
+            let key = issue["key"].as_str().unwrap_or("").to_string();
+            let summary = issue["fields"]["summary"].as_str().unwrap_or("").to_string();
+            let status = issue["fields"]["status"]["name"]
+                .as_str()
+                .unwrap_or("Unknown")
+                .to_string();
+            
+            // Handle assignee which can be null
+            let assignee = if issue["fields"]["assignee"].is_null() {
+                "Unassigned".to_string()
+            } else {
+                issue["fields"]["assignee"]["displayName"]
+                    .as_str()
+                    .unwrap_or("Unassigned")
+                    .to_string()
+            };
+            
+            let url = format!("{}/browse/{}", base_url, key);
+
+            JiraTicket {
+                key,
+                summary,
+                status,
+                assignee,
+                url,
+            }
+        })
+        .collect();
+
+    Ok(tickets)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                let monitors = window.available_monitors()?;
+                let target_monitor = monitors.get(1).or_else(|| monitors.first());
+
+                if let Some(monitor) = target_monitor {
+                    let position = monitor.position();
+                    let size = monitor.size();
+
+                    window.set_position(Position::Physical(PhysicalPosition::new(
+                        position.x,
+                        position.y,
+                    )))?;
+
+                    window.set_size(Size::Physical(PhysicalSize::new(size.width, size.height)))?;
+                }
+            }
+
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             greet,
             get_ram_usage,
             get_docker_containers,
             get_spotify_track,
-            get_cpu_usage
+            get_cpu_usage,
+            get_jira_tickets
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
