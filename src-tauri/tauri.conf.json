@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "dashboard",
+        "title": "",
         "width": 800,
-        "height": 600
+        "height": 600,
+        "titleBarStyle": "Overlay",
+        "backgroundColor": "#f3f4f6"
       }
     ],
     "security": {
