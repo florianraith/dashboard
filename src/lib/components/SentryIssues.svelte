@@ -16,6 +16,7 @@
 
   let issues = $state<SentryIssue[]>([]);
   let error = $state<string | null>(null);
+  let isLoading = $state(true);
   let interval: number;
 
   function formatLastSeen(value: string): string {
@@ -40,14 +41,23 @@
   }
 
   async function updateIssues() {
+    let keepLoading = false;
     try {
       const data = await invoke<SentryIssue[]>("get_sentry_issues");
       issues = data;
       error = null;
     } catch (err) {
       console.error("Failed to get Sentry issues:", err);
-      error = String(err);
-      issues = [];
+      const errText = String(err);
+      if (errText.toLowerCase().includes("loading")) {
+        keepLoading = true;
+        error = null;
+      } else {
+        error = errText;
+        issues = [];
+      }
+    } finally {
+      isLoading = keepLoading;
     }
   }
 
@@ -85,7 +95,9 @@
   {/snippet}
 
   <div class="flex h-full min-h-0 flex-col gap-3">
-    {#if error}
+    {#if isLoading}
+      <p class="text-gray-500 text-sm italic">Loading Sentry issues...</p>
+    {:else if error}
       <p class="text-gray-500 text-sm italic">
         {error.includes("SENTRY_AUTH_TOKEN")
           ? "Sentry not configured. Set SENTRY_AUTH_TOKEN in .env"

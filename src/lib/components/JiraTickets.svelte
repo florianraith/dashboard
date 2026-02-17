@@ -14,6 +14,7 @@
 
   let tickets = $state<JiraTicket[]>([]);
   let error = $state<string | null>(null);
+  let isLoading = $state(true);
   let interval: number;
 
   function getStatusBadgeColor(status: string): string {
@@ -49,14 +50,23 @@
   }
 
   async function updateTickets() {
+    let keepLoading = false;
     try {
       const data = await invoke<JiraTicket[]>("get_jira_tickets");
       tickets = data;
       error = null;
     } catch (err) {
       console.error("Failed to get Jira tickets:", err);
-      error = String(err);
-      tickets = [];
+      const errText = String(err);
+      if (errText.toLowerCase().includes("loading")) {
+        keepLoading = true;
+        error = null;
+      } else {
+        error = errText;
+        tickets = [];
+      }
+    } finally {
+      isLoading = keepLoading;
     }
   }
 
@@ -83,7 +93,9 @@
 
 <Widget title="Jira Tickets">
   <div class="space-y-3 max-h-[420px]">
-    {#if error}
+    {#if isLoading}
+      <p class="text-gray-500 text-sm italic">Loading Jira tickets...</p>
+    {:else if error}
       <p class="text-gray-500 text-sm italic">
         {error.includes("environment variable") || error.includes("JIRA_")
           ? "Jira not configured. Set JIRA_EMAIL and JIRA_API_TOKEN in .env"

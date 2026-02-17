@@ -15,6 +15,8 @@
   }
 
   let services = $state<ServiceHealth[]>([]);
+  let isLoading = $state(true);
+  let error = $state<string | null>(null);
   let interval: number;
 
   function getLatencyClass(latencyMs: number | null): string {
@@ -59,8 +61,12 @@
   async function updateHealth() {
     try {
       services = await invoke<ServiceHealth[]>("get_service_health");
+      error = null;
     } catch (err) {
       console.error("Failed to get service health:", err);
+      error = String(err);
+    } finally {
+      isLoading = false;
     }
   }
 
@@ -90,8 +96,12 @@
   {/snippet}
 
   <div class="space-y-3">
-    {#if services.length === 0}
+    {#if isLoading}
       <p class="text-gray-500 text-sm italic">Loading health checks...</p>
+    {:else if error}
+      <p class="text-gray-500 text-sm italic">Unable to load health checks</p>
+    {:else if services.length === 0}
+      <p class="text-gray-500 text-sm italic">No services configured</p>
     {:else}
       {#each services as service}
         <button

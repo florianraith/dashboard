@@ -17,6 +17,8 @@
   }
 
   let ramUsage = $state<RamInfo>({ used: 0, total: 0, percentage: 0, top_processes: [] });
+  let isLoading = $state(true);
+  let loadError = $state<string | null>(null);
   let interval: number;
 
   function formatBytes(bytes: number): string {
@@ -33,8 +35,12 @@
     try {
       const data = await invoke<RamInfo>("get_ram_usage");
       ramUsage = data;
+      loadError = null;
     } catch (error) {
       console.error("Failed to get RAM usage:", error);
+      loadError = String(error);
+    } finally {
+      isLoading = false;
     }
   }
 
@@ -53,6 +59,11 @@
 
 <Widget title="RAM Usage">
   <div class="space-y-4">
+    {#if isLoading}
+      <p class="text-gray-500 text-sm italic">Loading RAM usage...</p>
+    {:else if loadError}
+      <p class="text-gray-500 text-sm italic">Unable to load RAM usage</p>
+    {:else}
     <div class="flex justify-between text-sm">
       <span class="text-gray-600">
         {formatBytes(ramUsage.used)} GB / {formatBytes(ramUsage.total)} GB
@@ -90,6 +101,7 @@
           {/each}
         </div>
       </div>
+    {/if}
     {/if}
   </div>
 </Widget>

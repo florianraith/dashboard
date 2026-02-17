@@ -14,17 +14,27 @@
 
   let containers = $state<DockerContainer[]>([]);
   let error = $state<string | null>(null);
+  let isLoading = $state(true);
   let interval: number;
 
   async function updateContainers() {
+    let keepLoading = false;
     try {
       const data = await invoke<DockerContainer[]>("get_docker_containers");
       containers = data;
       error = null;
     } catch (err) {
       console.error("Failed to get Docker containers:", err);
-      error = String(err);
-      containers = [];
+      const errText = String(err);
+      if (errText.toLowerCase().includes("loading")) {
+        keepLoading = true;
+        error = null;
+      } else {
+        error = errText;
+        containers = [];
+      }
+    } finally {
+      isLoading = keepLoading;
     }
   }
 
@@ -43,7 +53,9 @@
 
 <Widget title="Running Docker Containers">
   <div class="space-y-3">
-    {#if error}
+    {#if isLoading}
+      <p class="text-gray-500 text-sm italic">Loading containers...</p>
+    {:else if error}
       <p class="text-gray-500 text-sm italic">
         {error.includes("command not found") || error.includes("Failed to execute")
           ? "Docker not installed or not running"

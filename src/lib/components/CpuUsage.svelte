@@ -20,14 +20,20 @@
   }
 
   let cpuUsage = $state<CpuInfo>({ overall_usage: 0, cores: [], top_processes: [] });
+  let isLoading = $state(true);
+  let loadError = $state<string | null>(null);
   let interval: number;
 
   async function updateCpuUsage() {
     try {
       const data = await invoke<CpuInfo>("get_cpu_usage");
       cpuUsage = data;
+      loadError = null;
     } catch (error) {
       console.error("Failed to get CPU usage:", error);
+      loadError = String(error);
+    } finally {
+      isLoading = false;
     }
   }
 
@@ -46,6 +52,11 @@
 
 <Widget title="CPU Usage">
   <div class="space-y-4">
+    {#if isLoading}
+      <p class="text-gray-500 text-sm italic">Loading CPU usage...</p>
+    {:else if loadError}
+      <p class="text-gray-500 text-sm italic">Unable to load CPU usage</p>
+    {:else}
     <!-- Overall CPU Usage -->
     <div class="flex justify-between text-sm mb-2">
       <span class="text-gray-600">Overall</span>
@@ -89,6 +100,7 @@
           {/each}
         </div>
       </div>
+    {/if}
     {/if}
   </div>
 </Widget>

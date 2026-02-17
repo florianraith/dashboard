@@ -13,17 +13,27 @@
 
   let track = $state<SpotifyTrack | null>(null);
   let error = $state<string | null>(null);
+  let isLoading = $state(true);
   let interval: number;
 
   async function updateTrack() {
+    let keepLoading = false;
     try {
       const data = await invoke<SpotifyTrack>("get_spotify_track");
       track = data;
       error = null;
     } catch (err) {
       console.error("Failed to get Spotify track:", err);
-      error = String(err);
-      track = null;
+      const errText = String(err);
+      if (errText.toLowerCase().includes("loading")) {
+        keepLoading = true;
+        error = null;
+      } else {
+        error = errText;
+        track = null;
+      }
+    } finally {
+      isLoading = keepLoading;
     }
   }
 
@@ -40,7 +50,13 @@
   });
 </script>
 
-{#if error || !track}
+{#if isLoading}
+  <Widget title="Spotify">
+    <div class="space-y-3">
+      <p class="text-gray-500 text-sm italic">Loading Spotify data...</p>
+    </div>
+  </Widget>
+{:else if error || !track}
   <!-- Fallback to standard widget when no track is playing -->
   <Widget title="Spotify">
     <div class="space-y-3">
