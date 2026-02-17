@@ -1,17 +1,19 @@
 use serde::Serialize;
 use std::env;
 use std::process::Command;
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use sysinfo::System;
-use tauri::{Manager, PhysicalPosition, PhysicalSize, Position, Size};
+use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, Position, Size, State};
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct ProcessInfo {
     name: String,
     memory: u64,
     percentage: f64,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct RamUsage {
     used: u64,
     total: u64,
@@ -19,7 +21,7 @@ struct RamUsage {
     top_processes: Vec<ProcessInfo>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct DockerContainer {
     id: String,
     name: String,
@@ -29,7 +31,7 @@ struct DockerContainer {
     uptime: String,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct SpotifyTrack {
     track_name: String,
     artist: String,
@@ -38,26 +40,26 @@ struct SpotifyTrack {
     is_playing: bool,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct CpuCore {
     core_id: usize,
     usage: f32,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct CpuProcessInfo {
     name: String,
     cpu_usage: f32,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct CpuUsage {
     overall_usage: f32,
     cores: Vec<CpuCore>,
     top_processes: Vec<CpuProcessInfo>,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 struct JiraTicket {
     key: String,
     summary: String,
@@ -72,8 +74,7 @@ fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
 }
 
-#[tauri::command]
-fn get_ram_usage() -> RamUsage {
+fn collect_ram_usage() -> RamUsage {
     let mut sys = System::new_all();
     sys.refresh_all();
 
@@ -207,8 +208,7 @@ fn get_compose_info(container_id: &str) -> Option<(String, String)> {
     None
 }
 
-#[tauri::command]
-fn get_docker_containers() -> Result<Vec<DockerContainer>, String> {
+fn collect_docker_containers() -> Result<Vec<DockerContainer>, String> {
     let output = Command::new("docker")
         .args(&[
             "ps",
@@ -256,8 +256,7 @@ fn get_docker_containers() -> Result<Vec<DockerContainer>, String> {
     Ok(containers)
 }
 
-#[tauri::command]
-fn get_spotify_track() -> Result<SpotifyTrack, String> {
+fn collect_spotify_track() -> Result<SpotifyTrack, String> {
     #[cfg(target_os = "macos")]
     {
         let script = r#"
@@ -311,8 +310,7 @@ fn get_spotify_track() -> Result<SpotifyTrack, String> {
     }
 }
 
-#[tauri::command]
-fn get_cpu_usage() -> CpuUsage {
+fn collect_cpu_usage() -> CpuUsage {
     let mut sys = System::new_all();
 
     // Need to refresh twice with a delay to get accurate CPU usage
@@ -359,8 +357,7 @@ fn get_cpu_usage() -> CpuUsage {
     }
 }
 
-#[tauri::command]
-async fn get_jira_tickets() -> Result<Vec<JiraTicket>, String> {
+async fn collect_jira_tickets() -> Result<Vec<JiraTicket>, String> {
     let api_token = env::var("JIRA_API_TOKEN")
         .map_err(|_| "JIRA_API_TOKEN environment variable not set".to_string())?;
     let email = env::var("JIRA_EMAIL")
@@ -465,11 +462,132 @@ async fn get_jira_tickets() -> Result<Vec<JiraTicket>, String> {
     Ok(tickets)
 }
 
+#[tauri::command]
+fn get_ram_usage(state: State<'_, AppState>) -> RamUsage {
+    state
+        .snapshot
+        .read()
+        .expect("failed to lock state")
+        .ram
+        .clone()
+}
+
+#[tauri::command]
+fn get_cpu_usage(state: State<'_, AppState>) -> CpuUsage {
+    state
+        .snapshot
+        .read()
+        .expect("failed to lock state")
+        .cpu
+        .clone()
+}
+
+#[tauri::command]
+fn get_docker_containers(state: State<'_, AppState>) -> Result<Vec<DockerContainer>, String> {
+    state
+        .snapshot
+        .read()
+        .expect("failed to lock state")
+        .docker
+        .clone()
+}
+
+#[tauri::command]
+fn get_spotify_track(state: State<'_, AppState>) -> Result<SpotifyTrack, String> {
+    state
+        .snapshot
+        .read()
+        .expect("failed to lock state")
+        .spotify
+        .clone()
+}
+
+#[tauri::command]
+fn get_jira_tickets(state: State<'_, AppState>) -> Result<Vec<JiraTicket>, String> {
+    state
+        .snapshot
+        .read()
+        .expect("failed to lock state")
+        .jira
+        .clone()
+}
+
+fn start_background_pollers(app: &AppHandle) {
+    let snapshot_for_ram = app.state::<AppState>().snapshot.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        loop {
+            if let Ok(ram) = tauri::async_runtime::spawn_blocking(collect_ram_usage).await {
+                if let Ok(mut state) = snapshot_for_ram.write() {
+                    state.ram = ram;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(2000)).await;
+        }
+    });
+
+    let snapshot_for_cpu = app.state::<AppState>().snapshot.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(450)).await;
+        loop {
+            if let Ok(cpu) = tauri::async_runtime::spawn_blocking(collect_cpu_usage).await {
+                if let Ok(mut state) = snapshot_for_cpu.write() {
+                    state.cpu = cpu;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(2000)).await;
+        }
+    });
+
+    let snapshot_for_docker = app.state::<AppState>().snapshot.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(850)).await;
+        loop {
+            if let Ok(docker) = tauri::async_runtime::spawn_blocking(collect_docker_containers).await {
+                if let Ok(mut state) = snapshot_for_docker.write() {
+                    state.docker = docker;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(5000)).await;
+        }
+    });
+
+    let snapshot_for_spotify = app.state::<AppState>().snapshot.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(1250)).await;
+        loop {
+            if let Ok(spotify) = tauri::async_runtime::spawn_blocking(collect_spotify_track).await {
+                if let Ok(mut state) = snapshot_for_spotify.write() {
+                    state.spotify = spotify;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(3000)).await;
+        }
+    });
+
+    let snapshot_for_jira = app.state::<AppState>().snapshot.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(1700)).await;
+        loop {
+            let jira = collect_jira_tickets().await;
+            if let Ok(mut state) = snapshot_for_jira.write() {
+                state.jira = jira;
+            }
+            tokio::time::sleep(Duration::from_millis(30000)).await;
+        }
+    });
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let app_state = AppState::new();
+
     tauri::Builder::default()
+        .manage(app_state)
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
+            start_background_pollers(app.handle());
+
             if let Some(window) = app.get_webview_window("main") {
                 let monitors = window.available_monitors()?;
                 let target_monitor = monitors.get(1).or_else(|| monitors.first());
@@ -499,4 +617,39 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+#[derive(Clone)]
+struct AppSnapshot {
+    ram: RamUsage,
+    cpu: CpuUsage,
+    docker: Result<Vec<DockerContainer>, String>,
+    spotify: Result<SpotifyTrack, String>,
+    jira: Result<Vec<JiraTicket>, String>,
+}
+
+struct AppState {
+    snapshot: Arc<RwLock<AppSnapshot>>,
+}
+
+impl AppState {
+    fn new() -> Self {
+        Self {
+            snapshot: Arc::new(RwLock::new(AppSnapshot {
+                ram: RamUsage {
+                    used: 0,
+                    total: 0,
+                    percentage: 0.0,
+                    top_processes: Vec::new(),
+                },
+                cpu: CpuUsage {
+                    overall_usage: 0.0,
+                    cores: Vec::new(),
+                    top_processes: Vec::new(),
+                },
+                docker: Ok(Vec::new()),
+                spotify: Err("Loading Spotify data...".to_string()),
+                jira: Err("Loading Jira tickets...".to_string()),
+            })),
+        }
+    }
 }
