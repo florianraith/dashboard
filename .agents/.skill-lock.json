@@ -1,0 +1,33 @@
+{
+  "version": 3,
+  "skills": {
+    "frontend-design": {
+      "source": "anthropics/skills",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/anthropics/skills.git",
+      "skillPath": "skills/frontend-design/SKILL.md",
+      "skillFolderHash": "928950704df8a8b885c03de5da626331e6f29cf8",
+      "installedAt": "2026-02-17T00:32:10.678Z",
+      "updatedAt": "2026-02-17T00:33:13.611Z"
+    },
+    "tailwindcss-development": {
+      "source": "laravel/boost",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/laravel/boost.git",
+      "skillPath": ".ai/tailwindcss/3/skill/tailwindcss-development/SKILL.md",
+      "skillFolderHash": "e39c2ef8ff17d2d482286114eb34cf11b674d7c1",
+      "installedAt": "2026-02-17T00:33:52.058Z",
+      "updatedAt": "2026-02-17T00:33:52.058Z"
+    },
+    "web-component-design": {
+      "source": "wshobson/agents",
+      "sourceType": "github",
+      "sourceUrl": "https://github.com/wshobson/agents.git",
+      "skillPath": "plugins/ui-design/skills/web-component-design/SKILL.md",
+      "skillFolderHash": "b06348e715467984870fccd2f1257d59f11f597a",
+      "installedAt": "2026-02-17T00:36:03.493Z",
+      "updatedAt": "2026-02-17T00:36:03.493Z"
+    }
+  },
+  "dismissed": {}
+}
