@@ -566,7 +566,7 @@ async fn collect_sentry_issues() -> Result<Vec<SentryIssue>, String> {
     let token = env::var("SENTRY_AUTH_TOKEN")
         .map_err(|_| "SENTRY_AUTH_TOKEN environment variable not set".to_string())?;
 
-    let url = "https://sentry.io/api/0/organizations/zw-systems-gmbh/issues/?project=4509966802485248&statsPeriod=90d&sort=date&limit=15&query=is:unresolved";
+    let url = "https://sentry.io/api/0/organizations/zewotherm-heating-gmbh/issues/?project=4509966802485248&statsPeriod=90d&sort=date&limit=15&query=is:unresolved";
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(12))
