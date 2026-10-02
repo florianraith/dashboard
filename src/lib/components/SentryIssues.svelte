@@ -65,7 +65,6 @@
 
   function formatIssueTitle(title: string): string {
     return title
-      .replaceAll("/var/www/zewotherm/production", "")
       .replace(/([A-Za-z_][A-Za-z0-9_]*\\)+([A-Za-z_][A-Za-z0-9_]*)/g, "$2")
       .replace(/\s+/g, " ")
       .trim();

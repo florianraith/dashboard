@@ -32,11 +32,11 @@ There is no test suite and no formatter config. `npm run check` is the verificat
 
 Data sources shell out where no crate is used: Docker via `docker ps`/`docker inspect` label parsing, Spotify via macOS `osascript` AppleScript (returns an `Err` on non-macOS). `collect_cpu_usage` deliberately refreshes twice with a 200ms sleep because `sysinfo` needs two samples.
 
-Hardcoded, not configurable: the service-health URL list, the Sentry org/project in the API URL, and window placement (`monitors.get(1)`, i.e. second monitor, falling back to the first; sized to its usable area minus `WINDOW_GAP` = 15 logical px per side. On macOS the usable area comes from `NSScreen.visibleFrame` because Tauri's `work_area()` ignores the menu bar offset). Change them in `lib.rs`.
+Hardcoded, not configurable: window placement (`monitors.get(1)`, i.e. second monitor, falling back to the first; sized to its usable area minus `WINDOW_GAP` = 15 logical px per side. On macOS the usable area comes from `NSScreen.visibleFrame` because Tauri's `work_area()` ignores the menu bar offset). Change them in `lib.rs`.
 
 ### Config and secrets
 
-`src-tauri/src/main.rs` loads `.env` before `run()`, first from `~/.config/dashboard/.env` (the bundled app launches with cwd `/`), then `../.env` (dev runs from `src-tauri/`), then `dotenv()`. Earlier files win. It also prepends `/opt/homebrew/bin:/usr/local/bin` to `PATH`, since GUI launches lack them and `docker` would not resolve. Env vars read: `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_BASE_URL`, `JIRA_JQL`, `SENTRY_AUTH_TOKEN`. See `.env.example`.
+`src-tauri/src/main.rs` loads `.env` before `run()`, first from `~/.config/dashboard/.env` (the bundled app launches with cwd `/`), then `../.env` (dev runs from `src-tauri/`), then `dotenv()`. Earlier files win. It also prepends `/opt/homebrew/bin:/usr/local/bin` to `PATH`, since GUI launches lack them and `docker` would not resolve. Env vars read: `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_BASE_URL`, `JIRA_JQL`, `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT_ID`, `SENTRY_PATH_PREFIX`, `HEALTH_CHECKS` (`Name|URL` pairs, comma separated). See `.env.example`. The repo is public: internal URLs, org slugs, and names belong in `.env`, never in code.
 
 ### Frontend
 

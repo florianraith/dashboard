@@ -16,6 +16,7 @@
     summary: string;
     status: string;
     assignee: string;
+    is_mine: boolean;
     url: string;
   }
 
@@ -51,12 +52,8 @@
     return "primary";
   }
 
-  function isMine(assignee: string): boolean {
-    return assignee.trim().toLowerCase() === "florian raith";
-  }
-
-  function getAssigneeClass(assignee: string): string {
-    return isMine(assignee) ? "text-primary-700 font-semibold" : "text-gray-600";
+  function getAssigneeClass(ticket: JiraTicket): string {
+    return ticket.is_mine ? "text-primary-700 font-semibold" : "text-gray-600";
   }
 
   // Workflow order for cycling through statuses: todo, in progress, review, done, blocked, other
@@ -72,7 +69,7 @@
 
   let visibleTickets = $derived(
     tickets.filter(
-      (t) => (!onlyMine || isMine(t.assignee)) && (statusFilter === null || t.status === statusFilter),
+      (t) => (!onlyMine || t.is_mine) && (statusFilter === null || t.status === statusFilter),
     ),
   );
 
@@ -189,7 +186,7 @@
 
             <!-- Third row: Assignee (plain text) -->
             <div class="mt-1">
-              <span class="text-xs {getAssigneeClass(ticket.assignee)}" title={ticket.assignee}>
+              <span class="text-xs {getAssigneeClass(ticket)}" title={ticket.assignee}>
                 {ticket.assignee}
               </span>
             </div>

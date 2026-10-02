@@ -78,6 +78,7 @@ struct JiraTicket {
     summary: String,
     status: String,
     assignee: String,
+    is_mine: bool,
     url: String,
 }
 
@@ -471,7 +472,8 @@ async fn collect_jira_tickets() -> Result<Vec<JiraTicket>, String> {
     let email = env::var("JIRA_EMAIL")
         .map_err(|_| "JIRA_EMAIL environment variable not set".to_string())?;
     let base_url = env::var("JIRA_BASE_URL")
-        .unwrap_or_else(|_| "https://zw-systems.atlassian.net".to_string());
+        .map_err(|_| "JIRA_BASE_URL environment variable not set".to_string())?;
+    let base_url = base_url.trim_end_matches('/').to_string();
 
     let raw_jql = env::var("JIRA_JQL").unwrap_or_default();
     let jql = if raw_jql.trim().is_empty() {
@@ -498,6 +500,12 @@ async fn collect_jira_tickets() -> Result<Vec<JiraTicket>, String> {
             status, body
         ));
     }
+
+    let myself: serde_json::Value = auth_check
+        .json()
+        .await
+        .map_err(|e| format!("Failed to parse Jira account: {}", e))?;
+    let my_account_id = myself["accountId"].as_str().unwrap_or("").to_string();
 
     let url = format!(
         "{}/rest/api/3/search/jql?jql={}&maxResults=100&fields=summary,status,assignee",
@@ -555,6 +563,9 @@ async fn collect_jira_tickets() -> Result<Vec<JiraTicket>, String> {
                     .to_string()
             };
             
+            let is_mine = !my_account_id.is_empty()
+                && issue["fields"]["assignee"]["accountId"].as_str() == Some(my_account_id.as_str());
+
             let url = format!("{}/browse/{}", base_url, key);
 
             JiraTicket {
@@ -562,6 +573,7 @@ async fn collect_jira_tickets() -> Result<Vec<JiraTicket>, String> {
                 summary,
                 status,
                 assignee,
+                is_mine,
                 url,
             }
         })
@@ -571,12 +583,14 @@ async fn collect_jira_tickets() -> Result<Vec<JiraTicket>, String> {
 }
 
 async fn collect_service_health() -> Vec<ServiceHealth> {
-    let services = [
-        ("Trisolaris", "https://app.florianraith.com/up"),
-        ("Spliit", "https://spliit.florianraith.com/api/health"),
-        ("Partnerportal (Dev)", "https://dev-portal.zewotherm.com/up"),
-        ("Partnerportal (Prod)", "https://portal.zewotherm.com/up"),
-    ];
+    // HEALTH_CHECKS="Name|https://example.com/up,Other|https://other.example.com/health"
+    let raw_services = env::var("HEALTH_CHECKS").unwrap_or_default();
+    let services: Vec<(&str, &str)> = raw_services
+        .split(',')
+        .filter_map(|entry| entry.split_once('|'))
+        .map(|(name, url)| (name.trim(), url.trim()))
+        .filter(|(name, url)| !name.is_empty() && !url.is_empty())
+        .collect();
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(8))
@@ -649,7 +663,17 @@ async fn collect_sentry_issues() -> Result<Vec<SentryIssue>, String> {
     let token = env::var("SENTRY_AUTH_TOKEN")
         .map_err(|_| "SENTRY_AUTH_TOKEN environment variable not set".to_string())?;
 
-    let url = "https://sentry.io/api/0/organizations/zewotherm-heating-gmbh/issues/?project=4509966802485248&statsPeriod=90d&sort=date&limit=15&query=is:unresolved";
+    let org = env::var("SENTRY_ORG")
+        .map_err(|_| "SENTRY_ORG environment variable not set".to_string())?;
+    let project = env::var("SENTRY_PROJECT_ID")
+        .map_err(|_| "SENTRY_PROJECT_ID environment variable not set".to_string())?;
+    // Server path stripped from issue titles to keep them short, e.g. "/var/www/app"
+    let path_prefix = env::var("SENTRY_PATH_PREFIX").unwrap_or_default();
+
+    let url = format!(
+        "https://sentry.io/api/0/organizations/{}/issues/?project={}&statsPeriod=90d&sort=date&limit=15&query=is:unresolved",
+        org, project
+    );
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(12))
@@ -657,7 +681,7 @@ async fn collect_sentry_issues() -> Result<Vec<SentryIssue>, String> {
         .unwrap_or_else(|_| reqwest::Client::new());
 
     let response = client
-        .get(url)
+        .get(&url)
         .header("Authorization", format!("Bearer {}", token))
         .header("Accept", "application/json")
         .send()
@@ -687,6 +711,11 @@ async fn collect_sentry_issues() -> Result<Vec<SentryIssue>, String> {
                 .or_else(|| issue["metadata"]["title"].as_str())
                 .unwrap_or("Unknown issue")
                 .to_string();
+            let title = if path_prefix.is_empty() {
+                title
+            } else {
+                title.replace(&path_prefix, "")
+            };
 
             let last_seen = issue["lastSeen"]
                 .as_str()
