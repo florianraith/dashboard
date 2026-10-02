@@ -2,14 +2,23 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    // Load .env file from project root
-    match dotenvy::from_filename("../.env") {
-        Ok(path) => eprintln!("Loaded .env from: {:?}", path),
-        Err(e) => eprintln!("Failed to load .env: {:?}", e),
+    // Bundled apps launch with cwd "/", so the project root .env is unreachable.
+    // dotenvy never overrides an already set var, so earlier files take precedence.
+    if let Ok(home) = std::env::var("HOME") {
+        let path = std::path::Path::new(&home).join(".config/dashboard/.env");
+        match dotenvy::from_path(&path) {
+            Ok(()) => eprintln!("Loaded .env from: {:?}", path),
+            Err(e) => eprintln!("Failed to load {:?}: {:?}", path, e),
+        }
     }
 
-    // Also try loading from current directory as fallback
+    // Project root .env for `npm run tauri dev`, which runs from src-tauri/
+    let _ = dotenvy::from_filename("../.env");
     let _ = dotenvy::dotenv();
+
+    // GUI apps get a minimal PATH without Homebrew or Docker Desktop binaries
+    let path = std::env::var("PATH").unwrap_or_default();
+    std::env::set_var("PATH", format!("/opt/homebrew/bin:/usr/local/bin:{path}"));
 
     eprintln!(
         "JIRA_API_TOKEN present: {}",

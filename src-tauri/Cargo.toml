@@ -28,3 +28,8 @@ tokio = { version = "1", features = ["full"] }
 dotenvy = "0.15"
 urlencoding = "2.1"
 chrono = { version = "0.4", default-features = true }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSScreen"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSGeometry"] }

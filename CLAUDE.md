@@ -10,7 +10,7 @@ A personal Tauri 2 desktop dashboard (macOS-oriented) that fills a monitor with 
 
 ```bash
 npm run tauri dev      # primary dev loop: builds Rust, starts vite on :1420, opens the window
-npm run tauri build    # bundle the app
+npm run tauri build    # bundle Dashboard.app; install with cp -R src-tauri/target/release/bundle/macos/Dashboard.app /Applications/
 npm run dev            # frontend only (widgets will fail: no Tauri IPC available)
 npm run check          # svelte-check + TypeScript (the only "lint" that exists)
 cargo check            # from src-tauri/, faster than a full tauri build for Rust-only edits
@@ -32,11 +32,11 @@ There is no test suite and no formatter config. `npm run check` is the verificat
 
 Data sources shell out where no crate is used: Docker via `docker ps`/`docker inspect` label parsing, Spotify via macOS `osascript` AppleScript (returns an `Err` on non-macOS). `collect_cpu_usage` deliberately refreshes twice with a 200ms sleep because `sysinfo` needs two samples.
 
-Hardcoded, not configurable: the service-health URL list, the Sentry org/project in the API URL, and window placement (`monitors.get(1)`, i.e. second monitor, falling back to the first). Change them in `lib.rs`.
+Hardcoded, not configurable: the service-health URL list, the Sentry org/project in the API URL, and window placement (`monitors.get(1)`, i.e. second monitor, falling back to the first; sized to its usable area minus `WINDOW_GAP` = 15 logical px per side. On macOS the usable area comes from `NSScreen.visibleFrame` because Tauri's `work_area()` ignores the menu bar offset). Change them in `lib.rs`.
 
 ### Config and secrets
 
-`src-tauri/src/main.rs` loads `.env` before `run()`, using `dotenvy::from_filename("../.env")` because the Rust process runs from `src-tauri/`, then `dotenv()` as a fallback. Env vars read: `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_BASE_URL`, `JIRA_JQL`, `SENTRY_AUTH_TOKEN`. See `.env.example`.
+`src-tauri/src/main.rs` loads `.env` before `run()`, first from `~/.config/dashboard/.env` (the bundled app launches with cwd `/`), then `../.env` (dev runs from `src-tauri/`), then `dotenv()`. Earlier files win. It also prepends `/opt/homebrew/bin:/usr/local/bin` to `PATH`, since GUI launches lack them and `docker` would not resolve. Env vars read: `JIRA_EMAIL`, `JIRA_API_TOKEN`, `JIRA_BASE_URL`, `JIRA_JQL`, `SENTRY_AUTH_TOKEN`. See `.env.example`.
 
 ### Frontend
 
@@ -48,7 +48,7 @@ Hardcoded, not configurable: the service-health URL list, the Sentry org/project
 
 ### Window and styling
 
-The window is transparent and frameless-ish: `transparent: true` + `titleBarStyle: "Overlay"` + `macOSPrivateApi: true` in `tauri.conf.json`, `background-color: transparent` on `body`, and a `data-tauri-drag-region` strip at the top of `+page.svelte` as the only drag handle. Keep `bg-transparent` on the page root.
+The window is transparent and frameless-ish: `transparent: true` + `decorations: false` (no title bar or traffic lights) + `macOSPrivateApi: true` in `tauri.conf.json`, `background-color: transparent` on `body`, and a 12px `data-tauri-drag-region` strip absolutely positioned over the top edge of `+page.svelte` (the grid has no outer padding) as the only drag handle (needs `core:window:allow-start-dragging`). Keep `bg-transparent` on the page root.
 
 Tailwind v4 via `@tailwindcss/vite`. The theme lives in `@theme` in `src/app.css` (`primary` aliased to teal). `tailwind.config.js` is leftover v3 scaffolding and is not read; edit `app.css` instead.
 

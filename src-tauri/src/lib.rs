@@ -6,7 +6,7 @@ use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 use chrono::{DateTime, Utc};
 use sysinfo::System;
-use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, Position, Size, State};
+use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, Monitor, Position, Size, State};
 
 #[derive(Clone, Serialize)]
 struct ProcessInfo {
@@ -811,6 +811,56 @@ fn start_background_pollers(app: &AppHandle) {
     });
 }
 
+/// Logical pixels between the window and the screen edges
+const WINDOW_GAP: f64 = 15.0;
+
+/// Monitor area without menu bar and Dock as logical (x, y, width, height), origin top left.
+fn usable_area(monitor: &Monitor) -> (f64, f64, f64, f64) {
+    #[cfg(target_os = "macos")]
+    if let Some(area) = macos_visible_frame(monitor) {
+        return area;
+    }
+
+    // Tauri's work area on macOS ignores the menu bar offset, hence the NSScreen path above
+    let scale = monitor.scale_factor();
+    let area = monitor.work_area();
+    (
+        area.position.x as f64 / scale,
+        area.position.y as f64 / scale,
+        area.size.width as f64 / scale,
+        area.size.height as f64 / scale,
+    )
+}
+
+#[cfg(target_os = "macos")]
+fn macos_visible_frame(monitor: &Monitor) -> Option<(f64, f64, f64, f64)> {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::NSScreen;
+
+    let mtm = MainThreadMarker::new()?;
+    let screens = NSScreen::screens(mtm);
+    // Cocoa uses a bottom left origin relative to the primary screen
+    let primary_height = screens.firstObject()?.frame().size.height;
+
+    let scale = monitor.scale_factor();
+    let x = monitor.position().x as f64 / scale;
+    let width = monitor.size().width as f64 / scale;
+
+    screens.iter().find_map(|screen| {
+        let frame = screen.frame();
+        if (frame.origin.x - x).abs() > 1.0 || (frame.size.width - width).abs() > 1.0 {
+            return None;
+        }
+        let visible = screen.visibleFrame();
+        Some((
+            visible.origin.x,
+            primary_height - visible.origin.y - visible.size.height,
+            visible.size.width,
+            visible.size.height,
+        ))
+    })
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app_state = AppState::new();
@@ -826,15 +876,17 @@ pub fn run() {
                 let target_monitor = monitors.get(1).or_else(|| monitors.first());
 
                 if let Some(monitor) = target_monitor {
-                    let position = monitor.position();
-                    let size = monitor.size();
+                    let (x, y, width, height) = usable_area(monitor);
 
-                    window.set_position(Position::Physical(PhysicalPosition::new(
-                        position.x,
-                        position.y,
+                    window.set_position(Position::Logical(LogicalPosition::new(
+                        x + WINDOW_GAP,
+                        y + WINDOW_GAP,
                     )))?;
 
-                    window.set_size(Size::Physical(PhysicalSize::new(size.width, size.height)))?;
+                    window.set_size(Size::Logical(LogicalSize::new(
+                        width - 2.0 * WINDOW_GAP,
+                        height - 2.0 * WINDOW_GAP,
+                    )))?;
                 }
             }
 
