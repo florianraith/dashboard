@@ -3,7 +3,7 @@
   import CpuUsage from "$lib/components/CpuUsage.svelte";
   import DockerContainers from "$lib/components/DockerContainers.svelte";
   import SpotifyNowPlaying from "$lib/components/SpotifyNowPlaying.svelte";
-  import HealthUp from "$lib/components/HealthUp.svelte";
+  import ServiceHealth from "$lib/components/ServiceHealth.svelte";
   import SentryIssues from "$lib/components/SentryIssues.svelte";
   import JiraTickets from "$lib/components/JiraTickets.svelte";
 </script>
@@ -21,7 +21,7 @@
         </div>
 
         <div class="flex h-full min-h-0 flex-col gap-[15px]">
-          <HealthUp />
+          <ServiceHealth />
           <div class="flex-1 min-h-0">
             <SentryIssues />
           </div>

@@ -3,6 +3,9 @@
   import { invoke } from "@tauri-apps/api/core";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import Widget from "./Widget.svelte";
+  import Item from "./Item.svelte";
+  import Badge from "./Badge.svelte";
+  import StatusMessage from "./StatusMessage.svelte";
 
   interface SentryIssue {
     title: string;
@@ -118,29 +121,25 @@
   className="h-full min-h-0 flex flex-col"
   contentClassName="flex-1 min-h-0"
 >
-  {#snippet headerRight()}
-    <span class="text-xs text-gray-500"><span class="font-semibold">{issues.length}</span> issues in last 90 days</span>
+  {#snippet headerInfo()}
+    <span class="font-semibold">{issues.length}</span> issues in last 90 days
   {/snippet}
 
   <div class="flex h-full min-h-0 flex-col gap-3">
     {#if isLoading}
-      <p class="text-gray-500 text-sm italic">Loading Sentry issues...</p>
+      <StatusMessage>Loading Sentry issues...</StatusMessage>
     {:else if error}
-      <p class="text-gray-500 text-sm italic">
+      <StatusMessage>
         {error.includes("SENTRY_AUTH_TOKEN")
           ? "Sentry not configured. Set SENTRY_AUTH_TOKEN in .env"
           : "Error loading issues"}
-      </p>
+      </StatusMessage>
     {:else if issues.length === 0}
-      <p class="text-gray-500 text-sm italic">No issues found</p>
+      <StatusMessage>No issues found</StatusMessage>
     {:else}
       <div class="flex-1 min-h-0 space-y-3 overflow-y-auto pr-1">
         {#each issues as issue}
-          <button
-            class="w-full text-left border-l-4 border-primary-500 px-3 py-2 bg-gray-50 rounded-r hover:shadow-md transition-shadow cursor-pointer"
-            onclick={() => openIssue(issue.url)}
-            title="Open in Sentry"
-          >
+          <Item onclick={() => openIssue(issue.url)} title="Open in Sentry">
             <p class="text-sm text-gray-800 font-medium leading-snug whitespace-normal break-words" title={issue.title}>
               {formatIssueTitle(issue.title)}
             </p>
@@ -151,19 +150,13 @@
             </div>
 
             <div class="mt-2 flex items-center gap-2">
-              <span class="text-xs bg-primary-100 text-primary-700 px-1.5 py-0.5 rounded whitespace-nowrap">
-                {issue.events} events
-              </span>
-              <span class="text-xs bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded whitespace-nowrap">
-                {issue.users} users
-              </span>
+              <Badge>{issue.events} events</Badge>
+              <Badge tone="gray">{issue.users} users</Badge>
               {#if issue.is_bot}
-                <span class="text-xs bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded whitespace-nowrap">
-                  bot
-                </span>
+                <Badge tone="emerald">bot</Badge>
               {/if}
             </div>
-          </button>
+          </Item>
         {/each}
       </div>
     {/if}

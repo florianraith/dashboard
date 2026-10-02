@@ -2,6 +2,9 @@
   import { onMount, onDestroy } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import Widget from "./Widget.svelte";
+  import StatusMessage from "./StatusMessage.svelte";
+  import UsageBar from "./UsageBar.svelte";
+  import Section from "./Section.svelte";
 
   interface CpuCore {
     core_id: number;
@@ -53,9 +56,9 @@
 <Widget title="CPU Usage">
   <div class="space-y-4">
     {#if isLoading}
-      <p class="text-gray-500 text-sm italic">Loading CPU usage...</p>
+      <StatusMessage>Loading CPU usage...</StatusMessage>
     {:else if loadError}
-      <p class="text-gray-500 text-sm italic">Unable to load CPU usage</p>
+      <StatusMessage>Unable to load CPU usage</StatusMessage>
     {:else}
     <!-- Overall CPU Usage -->
     <div class="flex justify-between text-sm mb-2">
@@ -73,20 +76,14 @@
             <span class="text-xs text-gray-500">Core {core.core_id}</span>
             <span class="text-xs font-medium text-primary-600">{core.usage.toFixed(0)}%</span>
           </div>
-          <div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-            <div
-              class="bg-primary-500 h-full rounded-full transition-all duration-300 ease-out"
-              style="width: {Math.min(core.usage, 100)}%"
-            ></div>
-          </div>
+          <UsageBar percentage={core.usage} size="sm" />
         </div>
       {/each}
     </div>
 
     <!-- Top CPU Processes -->
     {#if cpuUsage.top_processes.length > 0}
-      <div class="mt-4 pt-4 border-t border-gray-200">
-        <h3 class="text-xs font-semibold text-gray-500 uppercase mb-2">Top Processes</h3>
+      <Section label="Top Processes">
         <div class="space-y-2">
           {#each cpuUsage.top_processes as process}
             <div class="flex justify-between items-center text-sm">
@@ -99,7 +96,7 @@
             </div>
           {/each}
         </div>
-      </div>
+      </Section>
     {/if}
     {/if}
   </div>

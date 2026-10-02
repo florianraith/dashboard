@@ -3,6 +3,9 @@
   import { invoke } from "@tauri-apps/api/core";
   import { openUrl } from "@tauri-apps/plugin-opener";
   import Widget from "./Widget.svelte";
+  import Item from "./Item.svelte";
+  import Badge from "./Badge.svelte";
+  import StatusMessage from "./StatusMessage.svelte";
 
   interface ServiceHealth {
     name: string;
@@ -91,37 +94,27 @@
 </script>
 
 <Widget title="Service Health">
-  {#snippet headerRight()}
-    <p class="text-xs text-gray-500">Last checked: {lastCheckedLabel}</p>
+  {#snippet headerInfo()}
+    Last checked: {lastCheckedLabel}
   {/snippet}
 
   <div class="space-y-3">
     {#if isLoading}
-      <p class="text-gray-500 text-sm italic">Loading health checks...</p>
+      <StatusMessage>Loading health checks...</StatusMessage>
     {:else if error}
-      <p class="text-gray-500 text-sm italic">Unable to load health checks</p>
+      <StatusMessage>Unable to load health checks</StatusMessage>
     {:else if services.length === 0}
-      <p class="text-gray-500 text-sm italic">No services configured</p>
+      <StatusMessage>No services configured</StatusMessage>
     {:else}
       {#each services as service}
-        <button
-          class="w-full text-left border-l-4 px-3 py-2 rounded-r bg-gray-50 transition-shadow hover:shadow-md {service.is_up
-            ? 'border-primary-500'
-            : 'border-red-500'}"
-          onclick={() => openService(service.url)}
-          title="Click to open service"
-        >
+        <Item alert={!service.is_up} onclick={() => openService(service.url)} title="Click to open service">
           <div class="flex items-center justify-between mb-1.5">
             <h4 class="font-semibold text-gray-800 text-sm truncate mr-2" title={service.name}>
               {service.name}
             </h4>
-            <span
-              class="text-xs px-2 py-0.5 rounded whitespace-nowrap {service.is_up
-                ? 'bg-primary-100 text-primary-700'
-                : 'bg-red-100 text-red-700'}"
-            >
+            <Badge tone={service.is_up ? "primary" : "red"}>
               {service.is_up ? "UP" : "DOWN"}
-            </span>
+            </Badge>
           </div>
 
           <div class="flex items-center justify-between">
@@ -136,7 +129,7 @@
               {/if}
             </span>
           </div>
-        </button>
+        </Item>
       {/each}
     {/if}
   </div>

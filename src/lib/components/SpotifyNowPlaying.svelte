@@ -2,6 +2,7 @@
   import { onMount, onDestroy } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import Widget from "./Widget.svelte";
+  import StatusMessage from "./StatusMessage.svelte";
 
   interface SpotifyTrack {
     track_name: string;
@@ -53,20 +54,20 @@
 {#if isLoading}
   <Widget title="Spotify">
     <div class="space-y-3">
-      <p class="text-gray-500 text-sm italic">Loading Spotify data...</p>
+      <StatusMessage>Loading Spotify data...</StatusMessage>
     </div>
   </Widget>
 {:else if error || !track}
   <!-- Fallback to standard widget when no track is playing -->
   <Widget title="Spotify">
     <div class="space-y-3">
-      <p class="text-gray-500 text-sm italic">
+      <StatusMessage>
         {error?.includes("not running")
           ? "Spotify is not running"
           : error?.includes("only supported")
             ? "Only supported on macOS"
             : "No track playing"}
-      </p>
+      </StatusMessage>
     </div>
   </Widget>
 {:else}

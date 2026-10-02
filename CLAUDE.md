@@ -40,10 +40,13 @@ Hardcoded, not configurable: the service-health URL list, the Sentry org/project
 
 ### Frontend
 
+`CONTEXT.md` defines the UI vocabulary (Widget, Header Info, Item, Accent Bar, Badge, Group, ...). Use those terms when discussing or changing the UI.
+
 - SPA mode: `adapter-static` with `fallback: index.html`, and `export const ssr = false` in `src/routes/+layout.ts`. Do not add server-side load functions or endpoints.
 - `src/routes/+page.svelte` is the whole layout: a three-column grid, hand-assigned per column, no widget registry. Reordering widgets means editing this file.
 - Every widget follows the same shape (see `RamUsage.svelte` as the reference): Svelte 5 runes (`$state`, `$props`), local `isLoading` / `loadError` state, `invoke<T>("get_...")` in `onMount` plus a `setInterval` roughly matching the Rust poll interval, cleared in `onDestroy`. TypeScript interfaces are duplicated per component to mirror the Rust structs (snake_case field names, since serde is not renaming).
-- `Widget.svelte` is the shared card shell, taking `title`, optional `headerRight` snippet, and class overrides.
+- `Widget.svelte` is the shared card shell, taking `title`, optional `headerInfo` snippet (already styled small and gray), and class overrides.
+- Shared building blocks named after `CONTEXT.md`: `Item` (Accent Bar block; `alert` turns the bar red, `onclick` renders it as a button), `Badge` (`tone` prop), `StatusMessage`, `UsageBar`, `Section`. Use them instead of repeating their classes.
 - External links use `openUrl` from `@tauri-apps/plugin-opener`, not `<a href>`.
 
 ### Window and styling

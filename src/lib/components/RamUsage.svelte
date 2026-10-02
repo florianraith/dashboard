@@ -2,6 +2,9 @@
   import { onMount, onDestroy } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import Widget from "./Widget.svelte";
+  import StatusMessage from "./StatusMessage.svelte";
+  import UsageBar from "./UsageBar.svelte";
+  import Section from "./Section.svelte";
 
   interface ProcessInfo {
     name: string;
@@ -60,9 +63,9 @@
 <Widget title="RAM Usage">
   <div class="space-y-4">
     {#if isLoading}
-      <p class="text-gray-500 text-sm italic">Loading RAM usage...</p>
+      <StatusMessage>Loading RAM usage...</StatusMessage>
     {:else if loadError}
-      <p class="text-gray-500 text-sm italic">Unable to load RAM usage</p>
+      <StatusMessage>Unable to load RAM usage</StatusMessage>
     {:else}
     <div class="flex justify-between text-sm">
       <span class="text-gray-600">
@@ -73,16 +76,10 @@
       </span>
     </div>
     
-    <div class="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
-      <div
-        class="bg-primary-500 h-full rounded-full transition-all duration-300 ease-out"
-        style="width: {ramUsage.percentage}%"
-      ></div>
-    </div>
+    <UsageBar percentage={ramUsage.percentage} />
 
     {#if ramUsage.top_processes.length > 0}
-      <div class="mt-4 pt-4 border-t border-gray-200">
-        <h3 class="text-xs font-semibold text-gray-500 uppercase mb-2">Top Processes</h3>
+      <Section label="Top Processes">
         <div class="space-y-2">
           {#each ramUsage.top_processes as process}
             <div class="flex justify-between items-center text-sm">
@@ -100,7 +97,7 @@
             </div>
           {/each}
         </div>
-      </div>
+      </Section>
     {/if}
     {/if}
   </div>

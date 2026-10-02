@@ -2,6 +2,8 @@
   import { onMount, onDestroy } from "svelte";
   import { invoke } from "@tauri-apps/api/core";
   import Widget from "./Widget.svelte";
+  import Item from "./Item.svelte";
+  import StatusMessage from "./StatusMessage.svelte";
 
   interface DockerContainer {
     id: string;
@@ -101,108 +103,73 @@
   });
 </script>
 
-<Widget title="Docker Containers">
-  {#snippet headerRight()}
-    {#if stats}
-      <span class="text-xs text-gray-500">
-        CPU <span class="font-semibold" style:color={usageColor(stats.cpu_percentage)}>
-          {stats.cpu_percentage.toFixed(1)}%
-        </span>
-        · RAM <span
-          class="font-semibold"
-          style:color={usageColor(stats.memory_total ? (stats.memory_used / stats.memory_total) * 100 : 0)}
-        >
-          {formatGB(stats.memory_used)} GB
-        </span>
-        · Disk <span class="font-semibold">{(stats.disk_used / 1e9).toFixed(1)} GB</span>
+{#snippet containerItem(container: DockerContainer)}
+  {@const ports = portList(container.ports)}
+  <Item alert={!container.running} title={ports.join(", ")} class="min-w-0 space-y-1">
+    <div class="flex items-baseline justify-between gap-2">
+      <p class="text-sm font-semibold text-gray-800 truncate shrink-0 max-w-[60%]">{container.name}</p>
+      {#if container.exit_status}
+        <p class="text-xs font-medium text-red-600 whitespace-nowrap">{container.exit_status}</p>
+      {:else if ports.length}
+        <p class="text-xs font-medium text-gray-700 truncate min-w-0">{ports.join(", ")}</p>
+      {:else}
+        <p class="text-xs text-gray-400 italic whitespace-nowrap">No ports</p>
+      {/if}
+    </div>
+    <div class="flex items-baseline justify-between gap-2">
+      <p class="text-xs text-gray-600 truncate min-w-0" title={container.image}>{container.image}</p>
+      <span class="text-xs text-gray-500 whitespace-nowrap">
+        {container.running || !container.uptime ? container.uptime : `${container.uptime} ago`}
       </span>
+    </div>
+  </Item>
+{/snippet}
+
+<Widget title="Docker Containers">
+  {#snippet headerInfo()}
+    {#if stats}
+      CPU <span class="font-semibold" style:color={usageColor(stats.cpu_percentage)}>
+        {stats.cpu_percentage.toFixed(1)}%
+      </span>
+      · RAM <span
+        class="font-semibold"
+        style:color={usageColor(stats.memory_total ? (stats.memory_used / stats.memory_total) * 100 : 0)}
+      >
+        {formatGB(stats.memory_used)} GB
+      </span>
+      · Disk <span class="font-semibold">{(stats.disk_used / 1e9).toFixed(1)} GB</span>
     {/if}
   {/snippet}
 
   <div class="space-y-3">
     {#if isLoading}
-      <p class="text-gray-500 text-sm italic">Loading containers...</p>
+      <StatusMessage>Loading containers...</StatusMessage>
     {:else if error}
-      <p class="text-gray-500 text-sm italic">
+      <StatusMessage>
         {error.includes("command not found") || error.includes("Failed to execute")
           ? "Docker not installed or not running"
           : "Error loading containers"}
-      </p>
+      </StatusMessage>
     {:else if containers.length === 0}
-      <p class="text-gray-500 text-sm italic">No running containers</p>
+      <StatusMessage>No running containers</StatusMessage>
     {:else}
       <div class="space-y-3">
         {#each composeGroups as group (group.project)}
+          <!-- Group: one compose project -->
           <div>
             <h4 class="font-semibold text-gray-800 text-base truncate mb-2" title={group.project}>
               {group.project}
             </h4>
             <div class="grid grid-cols-[repeat(auto-fill,minmax(10rem,1fr))] gap-2">
               {#each group.items as container (container.id)}
-                {@const ports = portList(container.ports)}
-                <div
-                  class="border-l-4 {container.running ? 'border-primary-500' : 'border-red-500'} px-3 py-2 bg-gray-50 rounded-r min-w-0 space-y-1"
-                  title={ports.join(", ")}
-                >
-                  <div class="flex items-baseline justify-between gap-2">
-                    <p class="text-sm font-semibold text-gray-800 truncate shrink-0 max-w-[60%]">{container.name}</p>
-                    {#if container.exit_status}
-                      <p class="text-xs font-medium text-red-600 whitespace-nowrap">{container.exit_status}</p>
-                    {:else if ports.length}
-                      <p class="text-xs font-medium text-gray-700 truncate min-w-0">{ports.join(", ")}</p>
-                    {:else}
-                      <p class="text-xs text-gray-400 italic whitespace-nowrap">No ports</p>
-                    {/if}
-                  </div>
-                  <div class="flex items-baseline justify-between gap-2">
-                    <p class="text-xs text-gray-600 truncate min-w-0" title={container.image}>{container.image}</p>
-                    <span class="text-xs text-gray-500 whitespace-nowrap">
-                      {container.running || !container.uptime ? container.uptime : `${container.uptime} ago`}
-                    </span>
-                  </div>
-                </div>
+                {@render containerItem(container)}
               {/each}
             </div>
           </div>
         {/each}
 
         {#each standalone as container (container.id)}
-          {@const ports = portList(container.ports)}
-          <div class="border-l-4 border-primary-500 px-3 py-2 bg-gray-50 rounded-r">
-            <!-- First row: Name - Uptime -->
-            <div class="flex items-center justify-between mb-1.5">
-              <h4 class="font-semibold text-gray-800 text-sm truncate mr-2" title={container.name}>
-                {container.name}
-              </h4>
-              <span class="text-xs text-gray-500 whitespace-nowrap">
-                {container.uptime}
-              </span>
-            </div>
-
-            <!-- Second row: Image - Ports -->
-            <div class="flex items-center justify-between">
-              <p class="text-xs text-gray-600 truncate mr-2" title={container.image}>
-                {container.image}
-              </p>
-
-              {#if ports.length}
-                <div class="flex items-center gap-1 flex-wrap justify-end">
-                  {#each ports.slice(0, 3) as port}
-                    <span class="text-xs bg-primary-100 text-primary-700 px-1.5 py-0.5 rounded font-mono whitespace-nowrap">
-                      {port}
-                    </span>
-                  {/each}
-                  {#if ports.length > 3}
-                    <span class="text-xs text-gray-500 whitespace-nowrap">
-                      +{ports.length - 3}
-                    </span>
-                  {/if}
-                </div>
-              {:else}
-                <span class="text-xs text-gray-400 italic whitespace-nowrap">No ports</span>
-              {/if}
-            </div>
-          </div>
+          {@render containerItem(container)}
         {/each}
       </div>
     {/if}
