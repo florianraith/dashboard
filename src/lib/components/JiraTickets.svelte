@@ -6,6 +6,10 @@
   import Item from "./Item.svelte";
   import Badge, { type BadgeTone } from "./Badge.svelte";
   import StatusMessage from "./StatusMessage.svelte";
+  import IconButton from "./IconButton.svelte";
+  import UserIcon from "~icons/tabler/user";
+  import FilterIcon from "~icons/tabler/filter";
+  import FilterOffIcon from "~icons/tabler/filter-off";
 
   interface JiraTicket {
     key: string;
@@ -18,6 +22,8 @@
   let tickets = $state<JiraTicket[]>([]);
   let error = $state<string | null>(null);
   let isLoading = $state(true);
+  let onlyMine = $state(false);
+  let statusFilter = $state<string | null>(null);
   let interval: number;
 
   function getStatusBadgeTone(status: string): BadgeTone {
@@ -45,11 +51,40 @@
     return "primary";
   }
 
+  function isMine(assignee: string): boolean {
+    return assignee.trim().toLowerCase() === "florian raith";
+  }
+
   function getAssigneeClass(assignee: string): string {
-    if (assignee.trim().toLowerCase() === "florian raith") {
-      return "text-primary-700 font-semibold";
-    }
-    return "text-gray-600";
+    return isMine(assignee) ? "text-primary-700 font-semibold" : "text-gray-600";
+  }
+
+  // Workflow order for cycling through statuses: todo, in progress, review, done, blocked, other
+  const toneOrder: BadgeTone[] = ["gray", "blue", "amber", "green", "red", "primary"];
+
+  let statuses = $derived(
+    [...new Set(tickets.map((t) => t.status))].sort(
+      (a, b) =>
+        toneOrder.indexOf(getStatusBadgeTone(a)) - toneOrder.indexOf(getStatusBadgeTone(b)) ||
+        a.localeCompare(b),
+    ),
+  );
+
+  let visibleTickets = $derived(
+    tickets.filter(
+      (t) => (!onlyMine || isMine(t.assignee)) && (statusFilter === null || t.status === statusFilter),
+    ),
+  );
+
+  // All statuses, then each status in workflow order, then back to all
+  function cycleStatusFilter() {
+    const next = statusFilter === null ? 0 : statuses.indexOf(statusFilter) + 1;
+    statusFilter = statuses[next] ?? null;
+  }
+
+  function resetFilters() {
+    onlyMine = false;
+    statusFilter = null;
   }
 
   async function updateTickets() {
@@ -99,6 +134,25 @@
   className="h-full flex flex-col"
   contentClassName="flex-1 min-h-0"
 >
+  {#snippet headerInfo()}
+    <div class="flex items-center gap-1">
+      <IconButton active={onlyMine} title="Only tickets assigned to me" onclick={() => (onlyMine = !onlyMine)}>
+        <UserIcon class="size-4" />
+      </IconButton>
+      <IconButton active={statusFilter !== null} title="Cycle through ticket statuses" onclick={cycleStatusFilter}>
+        <FilterIcon class="size-4" />
+        {#if statusFilter}
+          <span class="font-medium">{statusFilter}</span>
+        {/if}
+      </IconButton>
+      {#if onlyMine || statusFilter !== null}
+        <IconButton title="Reset filters" onclick={resetFilters}>
+          <FilterOffIcon class="size-4" />
+        </IconButton>
+      {/if}
+    </div>
+  {/snippet}
+
   <div class="h-full min-h-0">
     {#if isLoading}
       <StatusMessage>Loading Jira tickets...</StatusMessage>
@@ -112,9 +166,11 @@
       </StatusMessage>
     {:else if tickets.length === 0}
       <StatusMessage>No tickets found</StatusMessage>
+    {:else if visibleTickets.length === 0}
+      <StatusMessage>No tickets match the filters</StatusMessage>
     {:else}
       <div class="h-full min-h-0 space-y-3 overflow-y-auto pr-1">
-        {#each tickets as ticket}
+        {#each visibleTickets as ticket (ticket.key)}
           <Item onclick={() => openTicket(ticket.url)} title="Click to open in browser">
             <!-- First row: Title -->
             <p class="text-sm text-gray-800 font-medium leading-snug whitespace-normal break-words" title={ticket.summary}>

@@ -500,7 +500,7 @@ async fn collect_jira_tickets() -> Result<Vec<JiraTicket>, String> {
     }
 
     let url = format!(
-        "{}/rest/api/3/search/jql?jql={}&maxResults=15&fields=summary,status,assignee",
+        "{}/rest/api/3/search/jql?jql={}&maxResults=100&fields=summary,status,assignee",
         base_url,
         urlencoding::encode(&jql)
     );

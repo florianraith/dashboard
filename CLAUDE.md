@@ -47,6 +47,7 @@ Hardcoded, not configurable: the service-health URL list, the Sentry org/project
 - Every widget follows the same shape (see `RamUsage.svelte` as the reference): Svelte 5 runes (`$state`, `$props`), local `isLoading` / `loadError` state, `invoke<T>("get_...")` in `onMount` plus a `setInterval` roughly matching the Rust poll interval, cleared in `onDestroy`. TypeScript interfaces are duplicated per component to mirror the Rust structs (snake_case field names, since serde is not renaming).
 - `Widget.svelte` is the shared card shell, taking `title`, optional `headerInfo` snippet (already styled small and gray), and class overrides.
 - Shared building blocks named after `CONTEXT.md`: `Item` (Accent Bar block; `alert` turns the bar red, `onclick` renders it as a button), `Badge` (`tone` prop), `StatusMessage`, `UsageBar`, `Section`. Use them instead of repeating their classes.
+- Icons come from `unplugin-icons` and are compiled into the bundle (works offline): Tabler for UI icons (`import UserIcon from "~icons/tabler/user"`), Simple Icons for brand logos (`~icons/simple-icons/docker`). Size with Tailwind (`class="size-4"`). `IconButton` is the shared button for icons.
 - External links use `openUrl` from `@tauri-apps/plugin-opener`, not `<a href>`.
 
 ### Window and styling

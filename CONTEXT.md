@@ -82,6 +82,14 @@ _Avoid_: compose name label, subheading
 A small rounded label with a tinted background, holding a short value such as UP/DOWN, a Jira status, or a Sentry event count.
 _Avoid_: pill, chip, tag, code badge
 
+**Icon Button**:
+A small borderless button showing an icon, sometimes with a short label, that turns teal while its option is active. Used for Filters in Header Info.
+_Avoid_: toolbar button, toggle
+
+**Filter**:
+An Icon Button that narrows the Items shown in a Widget, such as only my tickets or a single ticket status.
+_Avoid_: toggle, view option
+
 **Usage Bar**:
 A horizontal bar whose filled length shows a percentage, such as RAM usage or a single CPU core.
 _Avoid_: progress bar, meter
