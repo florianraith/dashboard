@@ -27,10 +27,21 @@ struct RamUsage {
 struct DockerContainer {
     id: String,
     name: String,
+    project: Option<String>,
     image: String,
     status: String,
     ports: String,
     uptime: String,
+    exit_status: Option<String>,
+    running: bool,
+}
+
+#[derive(Clone, Serialize)]
+struct DockerStats {
+    cpu_percentage: f64,
+    memory_used: u64,
+    memory_total: u64,
+    disk_used: u64,
 }
 
 #[derive(Clone, Serialize)]
@@ -148,8 +159,9 @@ fn parse_ports(ports_str: &str) -> String {
         return String::new();
     }
 
-    // Parse port strings like "0.0.0.0:80->80/tcp, 0.0.0.0:3306->3306/tcp"
-    // Extract just the host port numbers
+    // Parse port strings like "0.0.0.0:80->80/tcp, [::]:80->80/tcp, 3306/tcp"
+    // Extract just the host port numbers, deduplicating IPv4/IPv6 bindings of the same port
+    let mut seen = std::collections::HashSet::new();
     ports_str
         .split(',')
         .filter_map(|port| {
@@ -170,75 +182,62 @@ fn parse_ports(ports_str: &str) -> String {
             }
             None
         })
+        .filter(|port| seen.insert(port.clone()))
         .collect::<Vec<_>>()
         .join(", ")
 }
 
-fn get_compose_info(container_id: &str) -> Option<(String, String)> {
-    // Get labels from container
-    let output = Command::new("docker")
-        .args(&["inspect", "--format", "{{.Config.Labels}}", container_id])
-        .output()
-        .ok()?;
+// Turns docker's "Up 14 minutes (healthy)" / "Up About an hour" into "14m" / "1h"
+fn abbreviate_uptime(status: &str) -> String {
+    let duration = status.strip_prefix("Up ").unwrap_or(status);
+    let duration = duration.split(" (").next().unwrap_or(duration).trim();
 
-    if !output.status.success() {
-        return None;
+    match duration {
+        "Less than a second" => return "<1s".to_string(),
+        "About a minute" => return "1m".to_string(),
+        "About an hour" => return "1h".to_string(),
+        _ => {}
     }
 
-    let labels = String::from_utf8_lossy(&output.stdout);
-
-    // Check if this is a compose container
-    let mut project_name = None;
-    let mut service_name = None;
-    let mut working_dir = None;
-
-    // Parse labels like: map[com.docker.compose.project:customer-portal com.docker.compose.service:mysql ...]
-    for label in labels.split_whitespace() {
-        if label.starts_with("com.docker.compose.project:") {
-            project_name = Some(
-                label
-                    .trim_start_matches("com.docker.compose.project:")
-                    .to_string(),
-            );
-        } else if label.starts_with("com.docker.compose.service:") {
-            service_name = Some(
-                label
-                    .trim_start_matches("com.docker.compose.service:")
-                    .to_string(),
-            );
-        } else if label.starts_with("com.docker.compose.project.working_dir:") {
-            working_dir = Some(
-                label
-                    .trim_start_matches("com.docker.compose.project.working_dir:")
-                    .to_string(),
-            );
+    let mut parts = duration.split_whitespace();
+    if let (Some(count), Some(unit)) = (parts.next(), parts.next()) {
+        let suffix = match unit.trim_end_matches('s') {
+            "second" => "s",
+            "minute" => "m",
+            "hour" => "h",
+            "day" => "d",
+            "week" => "w",
+            "month" => "mo",
+            "year" => "y",
+            _ => return duration.to_string(),
+        };
+        if count.parse::<u64>().is_ok() {
+            return format!("{}{}", count, suffix);
         }
     }
 
-    // If we have both project and service, format the name
-    if let (Some(service), Some(project)) = (service_name, project_name) {
-        // Try to extract folder name from working_dir, otherwise use project name
-        let folder_name = working_dir
-            .and_then(|dir| {
-                dir.trim_end_matches('/')
-                    .split('/')
-                    .last()
-                    .map(|s| s.to_string())
-            })
-            .unwrap_or(project);
-
-        return Some((folder_name, service));
-    }
-
-    None
+    duration.to_string()
 }
 
+fn compose_folder(project: &str, working_dir: &str) -> String {
+    // Prefer the folder name from working_dir, otherwise use the project name
+    working_dir
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|s| !s.is_empty())
+        .unwrap_or(project)
+        .to_string()
+}
+
+// Lists running containers plus stopped containers of compose projects that still have a running container
 fn collect_docker_containers() -> Result<Vec<DockerContainer>, String> {
     let output = Command::new("docker")
         .args(&[
             "ps",
+            "--all",
             "--format",
-            "{{.ID}}|{{.Names}}|{{.Image}}|{{.Status}}|{{.Ports}}|{{.RunningFor}}",
+            "{{.ID}}|{{.Names}}|{{.Image}}|{{.State}}|{{.Status}}|{{.Ports}}|{{.Label \"com.docker.compose.project\"}}|{{.Label \"com.docker.compose.service\"}}|{{.Label \"com.docker.compose.project.working_dir\"}}",
         ])
         .output()
         .map_err(|e| format!("Failed to execute docker command: {}", e))?;
@@ -253,32 +252,116 @@ fn collect_docker_containers() -> Result<Vec<DockerContainer>, String> {
         .filter(|line| !line.is_empty())
         .map(|line| {
             let parts: Vec<&str> = line.split('|').collect();
-            let id = parts.get(0).unwrap_or(&"").to_string();
-            let original_name = parts.get(1).unwrap_or(&"").to_string();
-            let raw_ports = parts.get(4).unwrap_or(&"").to_string();
+            let field = |i: usize| parts.get(i).copied().unwrap_or("");
+            let running = field(3) == "running";
+            let status = field(4);
 
-            // Check if this is a compose container and format name accordingly
-            let display_name = if let Some((folder, service)) = get_compose_info(&id) {
-                format!("{} - {}", folder, service)
+            // Stopped: "Exited (1) 3 minutes ago" -> exit status "Exited (1)", time since stop "3m"
+            let (uptime, exit_status) = if running {
+                (abbreviate_uptime(status), None)
             } else {
-                original_name
+                match status.find(')') {
+                    Some(end) => {
+                        let since = status[end + 1..].trim().trim_end_matches(" ago");
+                        (abbreviate_uptime(since), Some(status[..=end].to_string()))
+                    }
+                    None => (String::new(), Some(status.to_string())),
+                }
             };
 
-            // Parse and format ports
-            let formatted_ports = parse_ports(&raw_ports);
+            // Compose containers are shown by service name, grouped under their project folder
+            let (name, project) = match (field(6), field(7)) {
+                ("", _) | (_, "") => (field(1).to_string(), None),
+                (project, service) => (service.to_string(), Some(compose_folder(project, field(8)))),
+            };
 
             DockerContainer {
-                id,
-                name: display_name,
-                image: parts.get(2).unwrap_or(&"").to_string(),
-                status: parts.get(3).unwrap_or(&"").to_string(),
-                ports: formatted_ports,
-                uptime: parts.get(5).unwrap_or(&"").to_string(),
+                id: field(0).to_string(),
+                name,
+                project,
+                image: field(2).to_string(),
+                status: status.to_string(),
+                ports: parse_ports(field(5)),
+                uptime,
+                exit_status,
+                running,
             }
         })
         .collect();
 
-    Ok(containers)
+    let active_projects: std::collections::HashSet<String> = containers
+        .iter()
+        .filter(|c| c.running)
+        .filter_map(|c| c.project.clone())
+        .collect();
+
+    Ok(containers
+        .into_iter()
+        .filter(|c| c.running || c.project.as_ref().is_some_and(|p| active_projects.contains(p)))
+        .collect())
+}
+
+// Parses docker sizes like "167.4MiB", "7.651GiB", "42.42GB", "0B" into bytes
+fn parse_docker_size(size: &str) -> f64 {
+    let size = size.trim();
+    let split = size
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(size.len());
+    let value: f64 = size[..split].parse().unwrap_or(0.0);
+    let multiplier = match &size[split..] {
+        "kB" | "KB" => 1e3,
+        "MB" => 1e6,
+        "GB" => 1e9,
+        "TB" => 1e12,
+        "KiB" => 1024.0,
+        "MiB" => 1024.0 * 1024.0,
+        "GiB" => 1024.0 * 1024.0 * 1024.0,
+        "TiB" => 1024.0 * 1024.0 * 1024.0 * 1024.0,
+        _ => 1.0,
+    };
+    value * multiplier
+}
+
+fn docker_output(args: &[&str]) -> Result<String, String> {
+    let output = Command::new("docker")
+        .args(args)
+        .output()
+        .map_err(|e| format!("Failed to execute docker command: {}", e))?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+// Same numbers as the Docker Desktop footer: container CPU and RAM against the VM's capacity, plus disk usage
+fn collect_docker_stats() -> Result<DockerStats, String> {
+    let info = docker_output(&["info", "--format", "{{.NCPU}}|{{.MemTotal}}"])?;
+    let mut info_parts = info.trim().split('|');
+    let cpu_count: f64 = info_parts.next().and_then(|n| n.parse().ok()).unwrap_or(1.0);
+    let memory_total: u64 = info_parts.next().and_then(|n| n.parse().ok()).unwrap_or(0);
+
+    // docker stats reports CPU per core (100% = one core), so normalize by the core count
+    let stats = docker_output(&["stats", "--no-stream", "--format", "{{.CPUPerc}}|{{.MemUsage}}"])?;
+    let (cpu_sum, memory_used) = stats
+        .lines()
+        .filter_map(|line| line.split_once('|'))
+        .fold((0.0, 0.0), |(cpu, mem), (cpu_str, mem_str)| {
+            let cpu_value: f64 = cpu_str.trim_end_matches('%').parse().unwrap_or(0.0);
+            let mem_used = mem_str.split(" / ").next().unwrap_or("");
+            (cpu + cpu_value, mem + parse_docker_size(mem_used))
+        });
+
+    let disk = docker_output(&["system", "df", "--format", "{{.Size}}"])?;
+    let disk_used: f64 = disk.lines().map(parse_docker_size).sum();
+
+    Ok(DockerStats {
+        cpu_percentage: cpu_sum / cpu_count,
+        memory_used: memory_used as u64,
+        memory_total,
+        disk_used: disk_used as u64,
+    })
 }
 
 fn collect_spotify_track() -> Result<SpotifyTrack, String> {
@@ -682,6 +765,16 @@ fn get_docker_containers(state: State<'_, AppState>) -> Result<Vec<DockerContain
 }
 
 #[tauri::command]
+fn get_docker_stats(state: State<'_, AppState>) -> Result<DockerStats, String> {
+    state
+        .snapshot
+        .read()
+        .expect("failed to lock state")
+        .docker_stats
+        .clone()
+}
+
+#[tauri::command]
 fn get_spotify_track(state: State<'_, AppState>) -> Result<SpotifyTrack, String> {
     state
         .snapshot
@@ -758,6 +851,19 @@ fn start_background_pollers(app: &AppHandle) {
                 }
             }
             tokio::time::sleep(Duration::from_millis(5000)).await;
+        }
+    });
+
+    let snapshot_for_docker_stats = app.state::<AppState>().snapshot.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(1050)).await;
+        loop {
+            if let Ok(stats) = tauri::async_runtime::spawn_blocking(collect_docker_stats).await {
+                if let Ok(mut state) = snapshot_for_docker_stats.write() {
+                    state.docker_stats = stats;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(10000)).await;
         }
     });
 
@@ -896,6 +1002,7 @@ pub fn run() {
             greet,
             get_ram_usage,
             get_docker_containers,
+            get_docker_stats,
             get_spotify_track,
             get_cpu_usage,
             get_jira_tickets,
@@ -910,6 +1017,7 @@ struct AppSnapshot {
     ram: RamUsage,
     cpu: CpuUsage,
     docker: Result<Vec<DockerContainer>, String>,
+    docker_stats: Result<DockerStats, String>,
     spotify: Result<SpotifyTrack, String>,
     jira: Result<Vec<JiraTicket>, String>,
     health: Vec<ServiceHealth>,
@@ -936,6 +1044,7 @@ impl AppState {
                     top_processes: Vec::new(),
                 },
                 docker: Ok(Vec::new()),
+                docker_stats: Err("Loading Docker stats...".to_string()),
                 spotify: Err("Loading Spotify data...".to_string()),
                 jira: Err("Loading Jira tickets...".to_string()),
                 health: Vec::new(),
